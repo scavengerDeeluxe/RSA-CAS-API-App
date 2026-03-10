@@ -3,8 +3,12 @@
 # ============================================================
 $URL = "YOUR.access.SPOT.com"
 $AUTHURL = "YOUR.auth.SPOT.com"
+$VAULTName= "YourSecretVault"
+$JWKSecret = $YourJWKSecretName
+$SecretClientID= $yourClientIDSecretName
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+$script:SecureJwk = $null
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
@@ -14,14 +18,8 @@ Add-Type -AssemblyName System.Drawing
 
 function New-RSAJwtAssertion {
     param([string]$ClientId, [string]$TokenEndpointUrl, [string]$JwkJson)
-
-
-        Write-Host "=== JWT Assertion Debug ===" -ForegroundColor Cyan
-
         # Parse and validate JWK
         $jwk = $JwkJson | ConvertFrom-Json
-        Write-Host "JWK parsed successfully. Key type: $($jwk.kty), Algorithm: $($jwk.alg)" -ForegroundColor Yellow
-
         if (-not $jwk.kty -eq "RSA") {
             throw "Invalid key type. Expected 'RSA', got '$($jwk.kty)'"
         }
@@ -33,7 +31,6 @@ function ConvertFrom-Base64Url([string]$s) {
 }
 
         # Build RSA parameters with validation
-        Write-Host "Extracting RSA parameters..." -ForegroundColor Yellow
         $rsaParams = [System.Security.Cryptography.RSAParameters]::new()
 
         $requiredParams = @('n', 'e', 'd', 'p', 'q', 'dp', 'dq', 'qi')
@@ -54,7 +51,6 @@ function ConvertFrom-Base64Url([string]$s) {
 
         $rsa = [System.Security.Cryptography.RSA]::Create()
         $rsa.ImportParameters($rsaParams)
-        Write-Host "RSA key imported successfully. Key size: $($rsa.KeySize) bits" -ForegroundColor Yellow
 
         # Build JWT header
         $headerObj =@{ alg = "RS256"; typ = "JWT"; kid = $jwk.kid } | ConvertTo-Json -Compress
@@ -82,20 +78,15 @@ function ConvertTo-Base64Url([byte[]]$bytes) {
         $pB64 = ConvertTo-Base64Url ([Text.Encoding]::UTF8.GetBytes($payloadJson))
         $si   = "$hB64.$pB64"
 
-        Write-Host "Signing JWT..." -ForegroundColor Yellow
         $sig  = $rsa.SignData([Text.Encoding]::UTF8.GetBytes($si),
                     [System.Security.Cryptography.HashAlgorithmName]::SHA256,
                     [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
         $rsa.Dispose()
 
         $jwt = "$si.$(ConvertTo-Base64Url $sig)"
-        Write-Host "JWT created successfully. Length: $($jwt.Length) characters" -ForegroundColor Green
 
         # Decode and display parts for verification
         $parts = $jwt.Split('.')
-        Write-Host "JWT Parts:" -ForegroundColor Yellow
-        Write-Host "  Header: $([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($parts[0].Replace('-', '+').Replace('_', '/') + '==').Substring(0, ($parts[0].Replace('-', '+').Replace('_', '/') + '==').Length - (($parts[0].Replace('-', '+').Replace('_', '/') + '==').Length % 4)))))" -ForegroundColor Gray
-
         return $jwt
 
     }
@@ -660,9 +651,14 @@ $tabAuth.Controls.Add($script:txtToken)
 # Auth button events
 $btnLoadVault.Add_Click({
     try {
-        $script:txtJwk.Text      = Get-Secret -Vault "RSAVault" -Name "RSA-CAS-JWK"      -AsPlainText -ErrorAction Stop
-        $script:txtClientId.Text = Get-Secret -Vault "RSAVault" -Name "RSA-CAS-ClientId" -AsPlainText -ErrorAction Stop
-        $lblStatus.Text      = "Vault loaded OK"
+        # Load JWK securely into variable (not displayed)
+        $script:SecureJwk = Get-Secret -Vault $VAULTName -Name $JWKSecret -AsPlainText -ErrorAction Stop
+        $script:txtClientId.Text = Get-Secret -Vault $VAULTName -Name $SecretClientID -AsPlainText -ErrorAction Stop
+
+        # Show masked placeholder instead of actual JWK
+        $script:txtJwk.Text = '{"kty":"RSA","kid":"*** LOADED FROM VAULT ***","n":"*** REDACTED ***","e":"*** REDACTED ***","d":"*** REDACTED ***"}'
+
+        $lblStatus.Text = "Vault loaded OK (JWK secured)"
         $lblStatus.ForeColor = $clrGreen
     } catch {
         [System.Windows.Forms.MessageBox]::Show("Vault load failed: $($_.Exception.Message)", "Vault Error", "OK", "Error")
@@ -671,10 +667,18 @@ $btnLoadVault.Add_Click({
 
 $btnSaveVault.Add_Click({
     try {
-        Set-Secret -Vault "RSAVault" -Name "RSA-CAS-JWK"      -Secret $script:txtJwk.Text      -ErrorAction Stop
-        Set-Secret -Vault "RSAVault" -Name "RSA-CAS-ClientId" -Secret $script:txtClientId.Text -ErrorAction Stop
-        $lblStatus.Text      = "Saved to vault"
-        $lblStatus.ForeColor = $clrGreen
+        # Use secure JWK if available, otherwise use text box content
+        $jwkToSave = if ($script:SecureJwk) { $script:SecureJwk } else { $script:txtJwk.Text }
+
+        # Don't save if it's the placeholder text
+        if ($jwkToSave -notmatch '\*\*\* REDACTED \*\*\*') {
+            Set-Secret -Vault $VaultName -Name $JWKSecret      -Secret $jwkToSave -ErrorAction Stop
+            Set-Secret -Vault $vaultName -Name $SecretClientID -Secret $script:txtClientId.Text -ErrorAction Stop
+            $lblStatus.Text      = "Saved to vault (JWK secured)"
+            $lblStatus.ForeColor = $clrGreen
+        } else {
+            [System.Windows.Forms.MessageBox]::Show("Cannot save placeholder text. Enter actual JWK or load fresh from vault.", "Save Error", "OK", "Warning")
+        }
     } catch {
         [System.Windows.Forms.MessageBox]::Show("Vault save failed: $($_.Exception.Message)", "Vault Error", "OK", "Error")
     }
@@ -686,10 +690,13 @@ $btnGetToken.Add_Click({
         $btnGetToken.Enabled = $false
         $form.Refresh()
 
+        # Use secure JWK if loaded from vault, otherwise use text box content
+        $jwkToUse = if ($script:SecureJwk) { $script:SecureJwk } else { $script:txtJwk.Text }
+
         $script:BearerToken = Get-RSACASToken `
             -ClientId     $script:txtClientId.Text `
             -TokenUrl     $script:txtTokenUrl.Text `
-            -JwkJson      $script:txtJwk.Text `
+            -JwkJson      $jwkToUse `
             -Scope        $script:txtScope.Text
 
         $script:txtToken.Text = $script:BearerToken
@@ -1107,3 +1114,4 @@ $btnCopySnippet.Add_Click({
 # ============================================================
 
 [System.Windows.Forms.Application]::Run($form)
+
