@@ -9,6 +9,11 @@ $SecretClientID= $yourClientIDSecretName
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $script:SecureJwk = $null
+# Initialize secure JWK storage
+$script:SecureJwk = $null
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
@@ -131,7 +136,7 @@ $script:Presets = @{
         )
     }
     "System Event Logs" = @{
-        Endpoint = "systemeventlog/exportlogs"
+        Endpoint = "systemlog/exportlogs"
         Method   = "GET"
         Params   = @(
             @{ Key = "startTimeAfter";    Value = (Get-Date).ToUniversalTime().AddDays(-1).ToString("yyyy-MM-ddTHH:mm:ss.fff") + "Z" }
@@ -140,14 +145,14 @@ $script:Presets = @{
             @{ Key = "pageSize";          Value = "100" }
         )
     }
-    "Authentication Audit Logs" = @{
-        Endpoint = "authenticationauditlog/exportlogs"
+    "User Auth Audit Logs" = @{
+        Endpoint = "users/{userId}/authlogs"
         Method   = "GET"
         Params   = @(
+            @{ Key = "userId";            Value = "" }
             @{ Key = "startTimeAfter";    Value = (Get-Date).ToUniversalTime().AddDays(-1).ToString("yyyy-MM-ddTHH:mm:ss.fff") + "Z" }
             @{ Key = "endTimeOnOrBefore"; Value = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fff") + "Z" }
-            @{ Key = "pageNumber";        Value = "0" }
-            @{ Key = "pageSize";          Value = "100" }
+            @{ Key = "eventCode";         Value = "" }
         )
     }
     "User Lookup" = @{
@@ -160,27 +165,19 @@ $script:Presets = @{
     }
     "User Search v1" = @{
         Endpoint = "users/search"
-        Method   = "GET"
+        Method   = "POST"
         Params   = @(
-            @{ Key = "searchString"; Value = "" }
-            @{ Key = "pageNumber";   Value = "0" }
+            @{ Key = "emailLike"; Value = "" }
             @{ Key = "pageSize";     Value = "50" }
         )
     }
     "User Search v2" = @{
-        Endpoint = "users/search/v2"
-        Method   = "GET"
+        Endpoint = "../v2/users/search"
+        Method   = "POST"
         Params   = @(
-            @{ Key = "searchString"; Value = "" }
+            @{ Key = "emailLike"; Value = "" }
             @{ Key = "pageNumber";   Value = "0" }
             @{ Key = "pageSize";     Value = "50" }
-        )
-    }
-    "User Details" = @{
-        Endpoint = "users/{userId}/details"
-        Method   = "GET"
-        Params   = @(
-            @{ Key = "userId"; Value = "" }
         )
     }
     "User Sync" = @{
@@ -191,60 +188,69 @@ $script:Presets = @{
         )
     }
     "User Status Update" = @{
-        Endpoint = "users/{userId}/status"
+        Endpoint = "users/{userId}/userStatus"
         Method   = "PUT"
         Params   = @(
             @{ Key = "userId"; Value = "" }
-            @{ Key = "status"; Value = "ENABLED" }
+            @{ Key = "userStatus"; Value = "Enabled" }
         )
     }
     "Create Local User" = @{
-        Endpoint = "users/localuser"
+        Endpoint = "users/create"
         Method   = "POST"
         Params   = @(
-            @{ Key = "email";     Value = "" }
-            @{ Key = "firstName"; Value = "" }
-            @{ Key = "lastName";  Value = "" }
-            @{ Key = "password";  Value = "" }
+            @{ Key = "firstName";             Value = "" }
+            @{ Key = "lastName";              Value = "" }
+            @{ Key = "userName";               Value = "" }
+            @{ Key = "email";                  Value = "" }
+            @{ Key = "identitySource";         Value = "Local Identity Source" }
+            @{ Key = "passwordCreationOption"; Value = "NONE" }
+            @{ Key = "passwordSendMethod";     Value = "NONE" }
         )
     }
     "Update Local User" = @{
-        Endpoint = "users/localuser/{userId}"
+        Endpoint = "users/update"
         Method   = "PUT"
         Params   = @(
-            @{ Key = "userId";    Value = "" }
-            @{ Key = "email";     Value = "" }
-            @{ Key = "firstName"; Value = "" }
-            @{ Key = "lastName";  Value = "" }
+            @{ Key = "id";                     Value = "" }
+            @{ Key = "firstName";             Value = "" }
+            @{ Key = "lastName";              Value = "" }
+            @{ Key = "userName";               Value = "" }
+            @{ Key = "email";                  Value = "" }
+            @{ Key = "identitySource";         Value = "Local Identity Source" }
+            @{ Key = "passwordCreationOption"; Value = "NONE" }
+            @{ Key = "passwordSendMethod";     Value = "NONE" }
         )
     }
     "Mark User Deleted" = @{
-        Endpoint = "users/{userId}/markdeleted"
-        Method   = "POST"
+        Endpoint = "users/{userId}/markDeleted"
+        Method   = "PUT"
         Params   = @(
             @{ Key = "userId"; Value = "" }
-            @{ Key = "delete"; Value = "true" }
+            @{ Key = "markDeleted"; Value = "true" }
         )
     }
     "Delete User Now" = @{
-        Endpoint = "users/{userId}/deletenow"
+        Endpoint = "users/{userId}"
         Method   = "DELETE"
         Params   = @(
             @{ Key = "userId"; Value = "" }
         )
     }
-    "Authenticator Details v1" = @{
-        Endpoint = "users/{userId}/authenticators"
+    "User Devices v1" = @{
+        Endpoint = "users/{userId}/devices"
         Method   = "GET"
         Params   = @(
             @{ Key = "userId"; Value = "" }
+            @{ Key = "includeBrowsers"; Value = "false" }
         )
     }
-    "Authenticator Details v2" = @{
-        Endpoint = "users/{userId}/authenticators/v2"
+    "User Devices v2" = @{
+        Endpoint = "../v2/users/{userId}/devices"
         Method   = "GET"
         Params   = @(
             @{ Key = "userId"; Value = "" }
+            @{ Key = "includeBrowsers"; Value = "true" }
         )
     }
     "Delete User Device" = @{
@@ -256,19 +262,20 @@ $script:Presets = @{
         )
     }
     "Update SMS/Voice Phone" = @{
-        Endpoint = "users/{userId}/phone"
-        Method   = "PUT"
+        Endpoint = "users/{userId}"
+        Method   = "PATCH"
         Params   = @(
             @{ Key = "userId";    Value = "" }
-            @{ Key = "smsPhone";  Value = "" }
-            @{ Key = "voicePhone"; Value = "" }
+            @{ Key = "smsNumber";  Value = "" }
+            @{ Key = "voiceNumber"; Value = "" }
         )
     }
-    "Unlock User Tokencodes" = @{
-        Endpoint = "users/{userId}/unlock"
-        Method   = "PUT"
+    "Unlock User Methods" = @{
+        Endpoint = "users/{userId}/methods"
+        Method   = "PATCH"
         Params   = @(
             @{ Key = "userId"; Value = "" }
+            @{ Key = "unlockMethods"; Value = '["TOKEN", "SMS", "VOICE"]' }
         )
     }
     "Device Registration Code" = @{
@@ -427,6 +434,102 @@ $script:Presets = @{
         Params   = @(
             @{ Key = "softwareId"; Value = "" }
             @{ Key = "hostname";   Value = "" }
+        )
+    }
+    "FIDO Configuration Get" = @{
+        Endpoint = "configuration/fido"
+        Method   = "GET"
+        Params   = @()
+    }
+    "FIDO Configuration Update" = @{
+        Endpoint = "configuration/fido"
+        Method   = "PATCH"
+        Params   = @(
+            @{ Key = "passkeyStatus"; Value = "false" }
+            @{ Key = "minimumCertificationLevel"; Value = "FIDO_CERTIFIED_L2" }
+            @{ Key = "allowedAuthenticatorsList"; Value = "" }
+            @{ Key = "deniedAuthenticatorsList"; Value = "" }
+            @{ Key = "allowedAuthenticatorsListEnabled"; Value = "true" }
+            @{ Key = "deniedAuthenticatorsListEnabled"; Value = "true" }
+        )
+    }
+    "FIDO Enable Authenticator" = @{
+        Endpoint = "fido/{userId}/authenticators/{authenticatorId}/enable"
+        Method   = "PATCH"
+        Params   = @(
+            @{ Key = "userId"; Value = "" }
+            @{ Key = "authenticatorId"; Value = "" }
+        )
+    }
+    "FIDO Disable Authenticator" = @{
+        Endpoint = "fido/{userId}/authenticators/{authenticatorId}/disable"
+        Method   = "PATCH"
+        Params   = @(
+            @{ Key = "userId"; Value = "" }
+            @{ Key = "authenticatorId"; Value = "" }
+        )
+    }
+    "Generate Verification Code" = @{
+        Endpoint = "users/generateVerifyCode/enroll"
+        Method   = "POST"
+        Params   = @(
+            @{ Key = "email"; Value = "" }
+            @{ Key = "custom_email"; Value = "" }
+            @{ Key = "code_validity"; Value = "10" }
+            @{ Key = "validity_time_duration_unit"; Value = "MIN" }
+            @{ Key = "code_send_to"; Value = "DISPLAY" }
+        )
+    }
+
+    "Hardware Token Lookup" = @{
+        Endpoint = "sidTokens/lookup"
+        Method   = "POST"
+        Params   = @(
+            @{ Key = "tokenSerialNumber"; Value = "" }
+        )
+    }
+    "Update Hardware Token Name" = @{
+        Endpoint = "users/{userId}/sidTokens/updateName"
+        Method   = "PATCH"
+        Params   = @(
+            @{ Key = "userId"; Value = "" }
+            @{ Key = "tokenSerialNumber"; Value = "" }
+            @{ Key = "updatedName"; Value = "" }
+        )
+    }
+    "License Usage v2" = @{
+        Endpoint = "../v2/licenseusage"
+        Method   = "GET"
+        Params   = @()
+    }
+    "Risk Dashboard Anomalous Users" = @{
+        Endpoint = "riskdashboard/anomaloususerevents"
+        Method   = "GET"
+        Params   = @(
+            @{ Key = "startTimeAfter";    Value = (Get-Date).ToUniversalTime().AddDays(-1).ToString("yyyy-MM-ddTHH:mm:ss.fff") + "Z" }
+            @{ Key = "endTimeOnOrBefore"; Value = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fff") + "Z" }
+        )
+    }
+    "Generate Report Users" = @{
+        Endpoint = "report/users/generate"
+        Method   = "POST"
+        Params   = @()
+    }
+    "Generate Report Hardware Tokens" = @{
+        Endpoint = "report/hardware_tokens/generate"
+        Method   = "POST"
+        Params   = @()
+    }
+    "Generate Report MFA Clients" = @{
+        Endpoint = "report/mfa_clients/generate"
+        Method   = "POST"
+        Params   = @()
+    }
+    "User Verify Start" = @{
+        Endpoint = "users/{userId}/verify/start"
+        Method   = "POST"
+        Params   = @(
+            @{ Key = "userId"; Value = "" }
         )
     }
     "Custom" = @{
@@ -752,6 +855,16 @@ $script:txtBaseUrl = New-Input 16 $y 390 26 "https://$URL/AdminInterface/restapi
 $pnlLeft.Controls.Add($script:txtBaseUrl)
 $y += 36
 
+# Note label for API version
+$lblVersion = New-Object System.Windows.Forms.Label
+$lblVersion.Text      = "💡 Some APIs use /v2/ - check documentation"
+$lblVersion.Location  = New-Object System.Drawing.Point(16, $y)
+$lblVersion.Size      = New-Object System.Drawing.Size(390, 14)
+$lblVersion.ForeColor = [System.Drawing.Color]::FromArgb(255, 204, 102)
+$lblVersion.Font      = $fontMonoSm
+$pnlLeft.Controls.Add($lblVersion)
+$y += 20
+
 # Endpoint + Method row
 $pnlLeft.Controls.Add((New-Label "Endpoint Path" 16 $y))
 $pnlLeft.Controls.Add((New-Label "Method" 300 $y))
@@ -914,10 +1027,28 @@ function Clear-ParamRows {
 function Update-BuiltUrl {
     $base = $script:txtBaseUrl.Text.TrimEnd('/')
     $ep   = $script:txtEndpoint.Text.TrimStart('/')
-    $qp   = $script:ParamRows | Where-Object { $_.Key.Text.Trim() } | ForEach-Object {
-        "$([Uri]::EscapeDataString($_.Key.Text))=$([Uri]::EscapeDataString($_.Value.Text))"
+
+    # Handle path parameter substitution
+    $pathParams = [System.Collections.ArrayList]::new()
+    $queryParams = [System.Collections.ArrayList]::new()
+
+    foreach ($row in $script:ParamRows) {
+        if ($row.Key.Text.Trim()) {
+            $key = $row.Key.Text.Trim()
+            $value = $row.Value.Text.Trim()
+
+            # Check if this parameter is used in the path template
+            if ($ep -match "\{$key\}") {
+                $ep = $ep -replace "\{$key\}", [Uri]::EscapeDataString($value)
+                $pathParams.Add($key) | Out-Null
+            } else {
+                # Regular query parameter
+                $queryParams.Add("$([Uri]::EscapeDataString($key))=$([Uri]::EscapeDataString($value))") | Out-Null
+            }
+        }
     }
-    $qs = if ($qp) { "?" + ($qp -join "&") } else { "" }
+
+    $qs = if ($queryParams.Count -gt 0) { "?" + ($queryParams -join "&") } else { "" }
     $script:txtBuiltUrl.Text = "$base/$ep$qs"
 }
 
@@ -965,13 +1096,26 @@ $btnSend.Add_Click({
         if ($method -eq "GET") {
             $result = Invoke-RestMethod -Uri $url -Method GET -Headers $headers
         } else {
-            # For POST, build body from params
+            # For POST/PUT/DELETE, build body from params (excluding path parameters)
+            $ep = $script:txtEndpoint.Text.TrimStart('/')
             $bodyHash = @{}
+
             foreach ($r in $script:ParamRows) {
-                if ($r.Key.Text.Trim()) { $bodyHash[$r.Key.Text.Trim()] = $r.Value.Text }
+                if ($r.Key.Text.Trim()) {
+                    $key = $r.Key.Text.Trim()
+                    # Only include parameters that are NOT used in the path template
+                    if ($ep -notmatch "\{$key\}") {
+                        $bodyHash[$key] = $r.Value.Text
+                    }
+                }
             }
-            $result = Invoke-RestMethod -Uri $url -Method $method -Headers $headers `
-                -ContentType "application/json" -Body ($bodyHash | ConvertTo-Json)
+
+            if ($bodyHash.Count -gt 0) {
+                $result = Invoke-RestMethod -Uri $url -Method $method -Headers $headers `
+                    -ContentType "application/json" -Body ($bodyHash | ConvertTo-Json)
+            } else {
+                $result = Invoke-RestMethod -Uri $url -Method $method -Headers $headers
+            }
         }
 
         $script:txtOutput.Text = $result | ConvertTo-Json -Depth 10
@@ -980,9 +1124,27 @@ $btnSend.Add_Click({
         $statusDot.ForeColor   = $clrGreen
 
     } catch {
-        $code = $_.Exception.Response.StatusCode.value__
-        $script:txtOutput.Text = "ERROR $code`r`n`r`n$($_.ErrorDetails.Message)`r`n`r`n$($_.Exception.Message)"
-        $lblStatus.Text        = "HTTP $code  |  $(Get-Date -Format 'HH:mm:ss')"
+        $code = if ($_.Exception.Response.StatusCode.value__) { $_.Exception.Response.StatusCode.value__ } else { "Unknown" }
+
+        # Enhanced error display for parameter validation
+        $errorDetails = ""
+        if ($_.ErrorDetails.Message) {
+            try {
+                $errorJson = $_.ErrorDetails.Message | ConvertFrom-Json
+                if ($errorJson.error_description) {
+                    $errorDetails += "API Error: $($errorJson.error_description)`r`n`r`n"
+                }
+                if ($errorJson.message) {
+                    $errorDetails += "Message: $($errorJson.message)`r`n`r`n"
+                }
+                $errorDetails += "Raw Response:`r`n$($_.ErrorDetails.Message)`r`n`r`n"
+            } catch {
+                $errorDetails += "Response Details:`r`n$($_.ErrorDetails.Message)`r`n`r`n"
+            }
+        }
+
+        $script:txtOutput.Text = "ERROR $code`r`n`r`n$errorDetails`r`nException: $($_.Exception.Message)`r`n`r`nURL: $url`r`nMethod: $method"
+        $lblStatus.Text        = "HTTP $code  |  $(Get-Date -Format 'HH:mm:ss') | Check response for parameter details"
         $lblStatus.ForeColor   = $clrRed
         $statusDot.ForeColor   = $clrRed
     } finally {
@@ -1044,20 +1206,29 @@ $tabSnippet.Controls.Add($txtSnippet)
 $btnGenSnippet.Add_Click({
     $url    = $script:txtBuiltUrl.Text
     $method = $script:cmbMethod.SelectedItem
+    $ep     = $script:txtEndpoint.Text.TrimStart('/')
 
     if ($method -eq "GET") {
-        $paramLines = ($script:ParamRows | Where-Object { $_.Key.Text.Trim() } | ForEach-Object {
+        # Separate path params from query params
+        $queryParamLines = ($script:ParamRows | Where-Object {
+            $_.Key.Text.Trim() -and ($ep -notmatch "\{$($_.Key.Text.Trim())\}")
+        } | ForEach-Object {
             "`$queryParams.Add(`"$($_.Key.Text)=`" + [Uri]::EscapeDataString(`"$($_.Value.Text)`"))"
+        }) -join "`r`n"
+
+        $pathSubstitutions = ($script:ParamRows | Where-Object {
+            $_.Key.Text.Trim() -and ($ep -match "\{$($_.Key.Text.Trim())\}")
+        } | ForEach-Object {
+            "`$endpoint = `$endpoint -replace `"\{$($_.Key.Text)\}`", [Uri]::EscapeDataString(`"$($_.Value.Text)`")"
         }) -join "`r`n"
 
         $snippet = @"
 # --- Auto-generated by RSA API Builder ---
 # Endpoint: $url
 
-`$queryParams = [System.Collections.Generic.List[string]]::new()
-$paramLines
+`$endpoint = "$($script:txtBaseUrl.Text.TrimEnd('/'))/$ep"
 
-`$endpoint = "$($script:txtBaseUrl.Text.TrimEnd('/'))/$($script:txtEndpoint.Text.TrimStart('/'))" + "?" + (`$queryParams -join "&")
+$(if ($pathSubstitutions) { "# Path parameter substitutions`r`n$pathSubstitutions`r`n" })$(if ($queryParamLines) { "`$queryParams = [System.Collections.Generic.List[string]]::new()`r`n$queryParamLines`r`n`$endpoint += `"?`" + (`$queryParams -join `"&`")`r`n" })
 
 `$result = Invoke-RestMethod ``
     -Uri     `$endpoint ``
@@ -1071,24 +1242,31 @@ $paramLines
 `$result | ConvertTo-Json -Depth 10 | Out-File -FilePath "response-$(Get-Date -Format 'yyyyMMdd-HHmmss').json" -Encoding utf8
 "@
     } else {
-        $bodyLines = ($script:ParamRows | Where-Object { $_.Key.Text.Trim() } | ForEach-Object {
+        # Separate path params from body params
+        $bodyLines = ($script:ParamRows | Where-Object {
+            $_.Key.Text.Trim() -and ($ep -notmatch "\{$($_.Key.Text.Trim())\}")
+        } | ForEach-Object {
             "    $($_.Key.Text) = `"$($_.Value.Text)`""
+        }) -join "`r`n"
+
+        $pathSubstitutions = ($script:ParamRows | Where-Object {
+            $_.Key.Text.Trim() -and ($ep -match "\{$($_.Key.Text.Trim())\}")
+        } | ForEach-Object {
+            "`$endpoint = `$endpoint -replace `"\{$($_.Key.Text)\}`", [Uri]::EscapeDataString(`"$($_.Value.Text)`")"
         }) -join "`r`n"
 
         $snippet = @"
 # --- Auto-generated by RSA API Builder ---
-# Endpoint: $($script:txtBaseUrl.Text.TrimEnd('/'))/$($script:txtEndpoint.Text.TrimStart('/'))
+# Endpoint: Built dynamically with path substitution
 
-`$body = @{
-$bodyLines
-} | ConvertTo-Json
+`$endpoint = "$($script:txtBaseUrl.Text.TrimEnd('/'))/$ep"
+
+$(if ($pathSubstitutions) { "# Path parameter substitutions`r`n$pathSubstitutions`r`n" })$(if ($bodyLines) { "`$body = @{`r`n$bodyLines`r`n} | ConvertTo-Json`r`n" } else { "`$body = `$null`r`n" })
 
 `$result = Invoke-RestMethod ``
-    -Uri         "$($script:txtBaseUrl.Text.TrimEnd('/'))/$($script:txtEndpoint.Text.TrimStart('/'))" ``
-    -Method      $method ``
-    -ContentType "application/json" ``
-    -Headers     @{ Authorization = "Bearer `$token" } ``
-    -Body        `$body
+    -Uri         `$endpoint ``
+    -Method      $method ``$(if ($bodyLines) { "    -ContentType `"application/json`" ```r`n    -Body        `$body ``" })
+    -Headers     @{ Authorization = "Bearer `$token" }
 
 `$result | ConvertTo-Json -Depth 10
 `$result | ConvertTo-Json -Depth 10 | Out-File -FilePath "response-$(Get-Date -Format 'yyyyMMdd-HHmmss').json" -Encoding utf8
@@ -1114,4 +1292,3 @@ $btnCopySnippet.Add_Click({
 # ============================================================
 
 [System.Windows.Forms.Application]::Run($form)
-
